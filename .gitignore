@@ -11,3 +11,7 @@ wheels/
 
 # Virtual environments
 .venv
+.DS_Store
+mlflow.db
+logs/*.png
+models/
