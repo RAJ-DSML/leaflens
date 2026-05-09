@@ -69,7 +69,7 @@ jobs:
             --platform=managed \
             --region=${{ secrets.GCP_REGION }} \
             --allow-unauthenticated \
-            --memory=2Gi \
+            --memory=4Gi \
             --cpu=2 \
             --timeout=120 \
             --max-instances=3 \
