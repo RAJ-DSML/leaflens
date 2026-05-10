@@ -6,6 +6,9 @@ import time
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Histogram, Gauge
+import prometheus_client
 
 from src.api.predictor import get_predictor
 
@@ -22,9 +25,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Prometheus metrics ---
+Instrumentator().instrument(app).expose(app)
+
+PREDICTION_COUNTER = Counter(
+    "leaflens_predictions_total",
+    "Total predictions made",
+    ["predicted_class"]
+)
+
+CONFIDENCE_HISTOGRAM = Histogram(
+    "leaflens_confidence_score",
+    "Confidence score distribution",
+    buckets=[10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+)
+
+INFERENCE_LATENCY = Histogram(
+    "leaflens_inference_latency_ms",
+    "Inference latency in milliseconds",
+    buckets=[100, 200, 500, 1000, 2000, 5000]
+)
+
+LOW_CONFIDENCE_COUNTER = Counter(
+    "leaflens_low_confidence_predictions_total",
+    "Predictions with confidence below 50%"
+)
+
 
 # --- Response schema ---
-
 class PredictionResult(BaseModel):
     prediction: str
     confidence: float
@@ -33,7 +61,6 @@ class PredictionResult(BaseModel):
 
 
 # --- Routes ---
-
 @app.get("/")
 def root():
     return {"message": "LeafLens API is running", "version": "1.0.0"}
@@ -55,7 +82,6 @@ def get_classes():
 
 @app.post("/predict", response_model=PredictionResult)
 async def predict(file: UploadFile = File(...)):
-    # Validate file type
     if file.content_type not in ["image/jpeg", "image/png", "image/jpg"]:
         raise HTTPException(
             status_code=400,
@@ -71,5 +97,14 @@ async def predict(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    result["latency_ms"] = round((time.time() - start) * 1000, 2)
+    latency_ms = round((time.time() - start) * 1000, 2)
+    result["latency_ms"] = latency_ms
+
+    # Record metrics
+    PREDICTION_COUNTER.labels(predicted_class=result["prediction"]).inc()
+    CONFIDENCE_HISTOGRAM.observe(result["confidence"])
+    INFERENCE_LATENCY.observe(latency_ms)
+    if result["confidence"] < 50:
+        LOW_CONFIDENCE_COUNTER.inc()
+
     return result
